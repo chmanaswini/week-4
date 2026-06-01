@@ -1,0 +1,132 @@
+# 04WT1 – YOLO Dataset Configuration Files: A One-Page Report
+**Project:** Deep Learning-Based Visual Analytics of Molecular Dynamics Trajectories  
+**Week:** 4 | **Task:** 1
+
+---
+
+## Overview
+
+YOLOv8/YOLOv11 (referred to as YOLO26 in this program) relies on a well-defined directory and metadata file structure to organise datasets for training and validation. This report explores these configuration files and their significance.
+
+---
+
+## Directory Structure
+
+A standard YOLO dataset follows this layout:
+
+```
+md_trajectory_dataset/
+├── dataset.yaml              ← Master config file
+├── train.txt                 ← Paths to all training images
+├── val.txt                   ← Paths to all validation images
+├── images/
+│   ├── train/
+│   │   ├── frame_0001.png
+│   │   └── ...
+│   └── val/
+│       ├── frame_0601.png
+│       └── ...
+└── labels/
+    ├── train/
+    │   ├── frame_0001.txt    ← Annotation for each image
+    │   └── ...
+    └── val/
+        ├── frame_0601.txt
+        └── ...
+```
+
+---
+
+## 1. `dataset.yaml` – Master Configuration File
+
+The YAML file is the entry point that YOLO reads to locate data and class definitions.
+
+```yaml
+# dataset.yaml — MD Trajectory Dataset
+path: /home/user/md_trajectory_dataset   # root path
+train: images/train                       # relative path to train images
+val: images/val                           # relative path to val images
+test: images/test                         # optional test set
+
+nc: 2                                     # number of classes
+names:
+  0: helix                                # alpha-helix structural motif
+  1: cluster                              # molecular cluster / aggregate
+```
+
+**Key fields:**
+
+| Field | Description |
+|-------|-------------|
+| `path` | Absolute root directory of the dataset |
+| `train` / `val` / `test` | Relative paths to image subsets |
+| `nc` | Total number of object classes |
+| `names` | Class index-to-name mapping |
+
+---
+
+## 2. `train.txt` and `val.txt`
+
+These plain-text files list absolute (or relative) paths to every image in the corresponding split. YOLO iterates over these during training.
+
+```
+# train.txt (excerpt)
+/home/user/md_trajectory_dataset/images/train/frame_0001.png
+/home/user/md_trajectory_dataset/images/train/frame_0007.png
+/home/user/md_trajectory_dataset/images/train/frame_0013.png
+```
+
+```
+# val.txt (excerpt)
+/home/user/md_trajectory_dataset/images/val/frame_0601.png
+/home/user/md_trajectory_dataset/images/val/frame_0605.png
+```
+
+---
+
+## 3. Label Files (`.txt` inside `labels/`)
+
+Each image has a corresponding `.txt` file with the same name, stored under `labels/train/` or `labels/val/`. Each line in the file represents one annotated object.
+
+**Format per line:**
+```
+<class_id> <x_center> <y_center> <width> <height>
+```
+
+All coordinates are **normalised** (0.0 to 1.0) relative to image dimensions.
+
+```
+# frame_0001.txt (example — two objects annotated)
+0 0.512 0.334 0.148 0.092
+1 0.278 0.671 0.203 0.175
+```
+
+**Interpretation:**
+- Line 1: Class `0` (helix), centered at (51.2%, 33.4%) of image, 14.8% wide, 9.2% tall
+- Line 2: Class `1` (cluster), centered at (27.8%, 67.1%), 20.3% wide, 17.5% tall
+
+**Why normalised coordinates?**  
+Normalisation ensures label files remain valid when images are resized (preserving aspect ratio), eliminating the need to re-annotate after scaling.
+
+---
+
+## 4. What the Configuration Files Reveal
+
+1. **Class taxonomy:** The YAML defines the problem space — what the model will learn to recognise.
+2. **Data splits:** Separate train/val paths enforce rigorous evaluation on unseen data.
+3. **Annotation quality:** Poorly placed bounding boxes in `.txt` files directly degrade model accuracy.
+4. **Scalability:** The flat text format is human-readable, version-controllable (Git), and tool-agnostic.
+
+---
+
+## References for Further Reading
+
+| Resource | URL |
+|----------|-----|
+| Ultralytics Dataset Format Docs | https://docs.ultralytics.com/datasets/detect/ |
+| YOLOv8 Training Guide | https://docs.ultralytics.com/modes/train/ |
+| YOLO Dataset YAML Specification | https://docs.ultralytics.com/reference/cfg/ |
+| Label Studio Export to YOLO | https://labelstud.io/guide/export.html#YOLO |
+| Roboflow YOLO Format Guide | https://roboflow.com/formats/yolov8-pytorch-txt |
+
+---
