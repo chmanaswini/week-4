@@ -1,121 +1,132 @@
-# 04WT1 – YOLO Dataset Configuration Files: A One-Page Report
-**Project:** Deep Learning-Based Visual Analytics of Molecular Dynamics Trajectories  
+# 04WT1 – YOLO Dataset Configuration Files: One-Page Report
+**Project:** Deep Learning-Based Visual Analytics of Molecular Dynamics Trajectories
+**Detection Classes:** alpha_helix (0), beta_sheet (1)
 **Week:** 4 | **Task:** 1
 
 ---
 
 ## Overview
 
-YOLOv8/YOLOv11 (referred to as YOLO26 in this program) relies on a well-defined directory and metadata file structure to organise datasets for training and validation. This report explores these configuration files and their significance.
+YOLOv8 relies on a structured set of metadata files that describe the dataset,
+class labels, and file paths for training and validation. This report explores
+each configuration file in the context of protein secondary structure detection.
 
 ---
 
 ## Directory Structure
 
-A standard YOLO dataset follows this layout:
-
 ```
-md_trajectory_dataset/
-├── dataset.yaml              ← Master config file
-├── train.txt                 ← Paths to all training images
-├── val.txt                   ← Paths to all validation images
-├── images/
-│   ├── train/
-│   │   ├── frame_0001.png
-│   │   └── ...
-│   └── val/
-│       ├── frame_0601.png
+protein_md_dataset/
+├── dataset.yaml              ← Master config: classes, paths
+├── train.txt                 ← List of absolute paths to training images
+├── val.txt                   ← List of absolute paths to validation images
+├── train/
+│   ├── images/
+│   │   ├── frame_0001.png   ← VMD-rendered protein frame
+│   │   └── ...              (100 total)
+│   └── labels/
+│       ├── frame_0001.txt   ← YOLO annotation for that frame
 │       └── ...
-└── labels/
-    ├── train/
-    │   ├── frame_0001.txt    ← Annotation for each image
-    │   └── ...
-    └── val/
-        ├── frame_0601.txt
-        └── ...
+└── val/
+    ├── images/              (40 frames)
+    └── labels/              (40 annotation files)
 ```
 
 ---
 
-## 1. `dataset.yaml` – Master Configuration File
-
-The YAML file is the entry point that YOLO reads to locate data and class definitions.
+## 1. `dataset.yaml` — Master Configuration
 
 ```yaml
-# dataset.yaml — MD Trajectory Dataset
-path: /home/user/md_trajectory_dataset   # root path
-train: images/train                       # relative path to train images
-val: images/val                           # relative path to val images
-test: images/test                         # optional test set
+# dataset.yaml — Protein Secondary Structure Detection
+path: /home/user/protein_md_dataset    # absolute root path
 
-nc: 2                                     # number of classes
+train: train/images                    # relative → train images
+val:   val/images                      # relative → val images
+test:  test/images                     # optional test set
+
+nc: 2                                  # number of classes
 names:
-  0: helix                                # alpha-helix structural motif
-  1: cluster                              # molecular cluster / aggregate
+  0: alpha_helix                       # helical coil (RED in VMD ribbon)
+  1: beta_sheet                        # flat stranded region (YELLOW in VMD ribbon)
 ```
 
-**Key fields:**
-
-| Field | Description |
-|-------|-------------|
-| `path` | Absolute root directory of the dataset |
-| `train` / `val` / `test` | Relative paths to image subsets |
-| `nc` | Total number of object classes |
-| `names` | Class index-to-name mapping |
+**What it reveals:**
+- The number of detection classes (`nc: 2`) — tells the model output layer size
+- The class index-to-name mapping — critical for reading prediction outputs
+- The data split paths — YOLO uses these to load batches during training
 
 ---
 
 ## 2. `train.txt` and `val.txt`
 
-These plain-text files list absolute (or relative) paths to every image in the corresponding split. YOLO iterates over these during training.
+Plain text files — one absolute image path per line.
+YOLO's dataloader reads these to know exactly which images to load each epoch.
 
 ```
 # train.txt (excerpt)
-/home/user/md_trajectory_dataset/images/train/frame_0001.png
-/home/user/md_trajectory_dataset/images/train/frame_0007.png
-/home/user/md_trajectory_dataset/images/train/frame_0013.png
+/home/user/protein_md_dataset/train/images/frame_0001.png
+/home/user/protein_md_dataset/train/images/frame_0007.png
+/home/user/protein_md_dataset/train/images/frame_0013.png
 ```
 
 ```
 # val.txt (excerpt)
-/home/user/md_trajectory_dataset/images/val/frame_0601.png
-/home/user/md_trajectory_dataset/images/val/frame_0605.png
+/home/user/protein_md_dataset/val/images/frame_0601.png
+/home/user/protein_md_dataset/val/images/frame_0609.png
 ```
 
 ---
 
 ## 3. Label Files (`.txt` inside `labels/`)
 
-Each image has a corresponding `.txt` file with the same name, stored under `labels/train/` or `labels/val/`. Each line in the file represents one annotated object.
-
-**Format per line:**
-```
-<class_id> <x_center> <y_center> <width> <height>
-```
-
-All coordinates are **normalised** (0.0 to 1.0) relative to image dimensions.
+Each image has a paired `.txt` file with the **same filename** in the `labels/` folder.
+Each line = one annotated object, in YOLO normalised format:
 
 ```
-# frame_0001.txt (example — two objects annotated)
-0 0.512 0.334 0.148 0.092
-1 0.278 0.671 0.203 0.175
+<class_id>  <x_center>  <y_center>  <width>  <height>
+```
+
+All values are **normalised to [0, 1]** relative to image width/height.
+
+```
+# frame_0001.txt — two structures annotated
+0  0.423  0.318  0.162  0.094
+1  0.651  0.512  0.231  0.083
 ```
 
 **Interpretation:**
-- Line 1: Class `0` (helix), centered at (51.2%, 33.4%) of image, 14.8% wide, 9.2% tall
-- Line 2: Class `1` (cluster), centered at (27.8%, 67.1%), 20.3% wide, 17.5% tall
+- Line 1: `alpha_helix` (class 0), centre at (42.3%, 31.8%), 16.2% wide, 9.4% tall
+- Line 2: `beta_sheet` (class 1), centre at (65.1%, 51.2%), 23.1% wide, 8.3% tall
 
-**Why normalised coordinates?**  
-Normalisation ensures label files remain valid when images are resized (preserving aspect ratio), eliminating the need to re-annotate after scaling.
+**Why normalised?**
+Normalisation makes label files resolution-independent. If a frame is resized
+from 1280×720 → 384×216 (same aspect ratio), the fractional coordinates
+still correctly locate the helix or sheet — no re-annotation needed.
 
 ---
 
-## 4. What the Configuration Files Reveal
+## 4. What These Files Collectively Reveal
 
-1. **Class taxonomy:** The YAML defines the problem space — what the model will learn to recognise.
-2. **Data splits:** Separate train/val paths enforce rigorous evaluation on unseen data.
-3. **Annotation quality:** Poorly placed bounding boxes in `.txt` files directly degrade model accuracy.
-4. **Scalability:** The flat text format is human-readable, version-controllable (Git), and tool-agnostic.
+| File | Key Insight |
+|------|-------------|
+| `dataset.yaml` | Problem scope: 2 classes, data locations, class names |
+| `train.txt / val.txt` | Exact images used per split — reproducible experiments |
+| `labels/*.txt` | Spatial position + class of every annotated structure per frame |
+
+Together they fully describe the supervised learning problem:
+what to detect, where to find training examples, and where each object is located.
+
+---
+
+## 5. Protein-Specific Annotation Notes
+
+Unlike everyday objects (cars, people), protein secondary structures:
+- Can appear **multiple times per frame** (a protein may have 3 helices + 2 sheets)
+- Are **small relative to frame size** — typical width 10–25% of frame
+- **Overlap** is common — a helix and sheet may be adjacent or partially occluded
+- Their appearance changes subtly frame-to-frame as the protein vibrates
+
+This makes high-quality annotation especially important for convergence.
 
 ---
 
@@ -123,10 +134,12 @@ Normalisation ensures label files remain valid when images are resized (preservi
 
 | Resource | URL |
 |----------|-----|
-| Ultralytics Dataset Format Docs | https://docs.ultralytics.com/datasets/detect/ |
-| YOLOv8 Training Guide | https://docs.ultralytics.com/modes/train/ |
-| YOLO Dataset YAML Specification | https://docs.ultralytics.com/reference/cfg/ |
-| Label Studio Export to YOLO | https://labelstud.io/guide/export.html#YOLO |
-| Roboflow YOLO Format Guide | https://roboflow.com/formats/yolov8-pytorch-txt |
+| Ultralytics Dataset Format | https://docs.ultralytics.com/datasets/detect/ |
+| YOLO Training Arguments | https://docs.ultralytics.com/modes/train/#arguments |
+| YAML Format Specification | https://yaml.org/spec/1.2-old/spec.html |
+| Label Studio YOLO Export | https://labelstud.io/guide/export.html#YOLO |
+| VMD Structure Coloring | https://www.ks.uiuc.edu/Research/vmd/current/ug/node86.html |
 
 ---
+
+*Report prepared with assistance from Claude (Anthropic) for dataset meta-file analysis.*
