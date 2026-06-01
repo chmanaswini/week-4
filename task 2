@@ -1,0 +1,201 @@
+# 04WT2 – Label Studio Setup & YOLO Dataset Creation
+**Project:** Deep Learning-Based Visual Analytics of Molecular Dynamics Trajectories  
+**Week:** 4 | **Task:** 2
+
+---
+
+## Objective
+
+Install Label Studio in a dedicated virtual environment, select a molecular dynamics visualization video, extract frames, annotate objects for detection, and generate YOLO-compatible label files, YAML config, and train/val split text files.
+
+---
+
+## Task: Object Detection on MD Trajectory Renders
+
+**Detection classes chosen (2 classes):**
+1. `helix` — Alpha-helix secondary structure visible in protein MD renders
+2. `cluster` — Dense molecular aggregate or nano-cluster in material simulations
+
+**Rationale:** These two structural motifs appear frequently in MD trajectory renders from tools like VMD and OVITO, making them suitable targets for bounding-box detection.
+
+---
+
+## Step 1: Install Label Studio in a Separate Virtual Environment
+
+```bash
+# Create a dedicated environment (NOT inside ultralytics)
+python -m venv ~/envs/labelstudio_env
+source ~/envs/labelstudio_env/bin/activate
+
+# Install label-studio
+pip install label-studio
+
+# Launch label-studio
+label-studio start
+# Access at: http://localhost:8080
+```
+
+> ⚠️ **Do NOT install inside the Ultralytics environment** — dependency conflicts may arise.
+
+---
+
+## Step 2: Video Selection & Frame Extraction
+
+**Video source:** Rendered MD trajectory of a protein folding simulation (OVITO export, 60 seconds, 640×480).
+
+Alternatively, sourced from: https://github.com/intel-iot-devkit/sample-videos
+
+```bash
+# Extract at 10 fps → 600 frames total
+ffmpeg -i md_protein_trajectory.mp4 -vf fps=10 all_frames/frame_%04d.png
+
+# Verify
+ls all_frames/ | wc -l   # Should output: 600
+```
+
+---
+
+## Step 3: Organize Frames into Train / Val / Test
+
+```bash
+mkdir -p dataset/{train,val,test}/images
+
+# Train: 100 frames — pick every 6th frame (temporal diversity)
+count=0
+for i in $(seq 1 6 600); do
+  cp all_frames/frame_$(printf "%04d" $i).png dataset/train/images/
+  ((count++))
+  [ $count -eq 100 ] && break
+done
+
+# Val: 40 frames — pick from remaining frames, spaced apart
+count=0
+for i in $(seq 4 15 600); do
+  cp all_frames/frame_$(printf "%04d" $i).png dataset/val/images/
+  ((count++))
+  [ $count -eq 40 ] && break
+done
+
+# Test: all other remaining frames
+# (copy everything not already in train/val)
+```
+
+---
+
+## Step 4: Annotate with Label Studio
+
+1. Open http://localhost:8080 in Chrome
+2. Create new project: **"MD Trajectory Object Detection"**
+3. Upload images from `dataset/train/images/` and `dataset/val/images/`
+4. Configure labeling interface with 2 classes:
+
+```xml
+<!-- Label Studio config XML -->
+<View>
+  <Image name="image" value="$image"/>
+  <RectangleLabels name="label" toName="image">
+    <Label value="helix" background="#FF6B6B"/>
+    <Label value="cluster" background="#4ECDC4"/>
+  </RectangleLabels>
+</View>
+```
+
+5. Draw bounding boxes around each visible helix and cluster in every frame
+6. Export annotations in **YOLO format** from Label Studio
+
+---
+
+## Step 5: Exported Label Files
+
+Label Studio exports one `.txt` file per image:
+
+```
+# dataset/train/labels/frame_0001.txt
+0 0.512 0.334 0.148 0.092
+1 0.278 0.671 0.203 0.175
+```
+
+Move label files to correct directories:
+```bash
+mkdir -p dataset/{train,val}/labels
+mv exported_labels/train/*.txt dataset/train/labels/
+mv exported_labels/val/*.txt dataset/val/labels/
+```
+
+---
+
+## Step 6: Create `train.txt` and `val.txt`
+
+```bash
+# Generate train.txt
+find $(pwd)/dataset/train/images -name "*.png" > dataset/train.txt
+
+# Generate val.txt
+find $(pwd)/dataset/val/images -name "*.png" > dataset/val.txt
+```
+
+---
+
+## Step 7: Create `dataset.yaml`
+
+```yaml
+# dataset.yaml
+path: /home/user/md_trajectory_dataset
+train: train/images
+val: val/images
+test: test/images
+
+nc: 2
+names:
+  0: helix
+  1: cluster
+```
+
+---
+
+## Final Dataset Structure
+
+```
+md_trajectory_dataset/
+├── dataset.yaml
+├── train.txt
+├── val.txt
+├── train/
+│   ├── images/   (100 PNG frames)
+│   └── labels/   (100 YOLO .txt files)
+├── val/
+│   ├── images/   (40 PNG frames)
+│   └── labels/   (40 YOLO .txt files)
+└── test/
+    └── images/   (460 PNG frames)
+```
+
+---
+
+## GitHub Upload
+
+All meta files committed to repository:
+
+```bash
+git init md-trajectory-yolo-dataset
+cd md-trajectory-yolo-dataset
+cp /path/to/dataset.yaml .
+cp /path/to/train.txt .
+cp /path/to/val.txt .
+cp -r /path/to/dataset/train/labels ./train_labels/
+cp -r /path/to/dataset/val/labels ./val_labels/
+git add .
+git commit -m "Add YOLO dataset meta files for MD trajectory detection"
+git push origin main
+```
+
+**GitHub Repository Link:** `https://github.com/<username>/md-trajectory-yolo-dataset`
+
+---
+
+## References
+
+- Label Studio Install Guide: https://labelstud.io/guide/install.html#Install-using-pip
+- Label Studio YOLO Export: https://labelstud.io/guide/export.html#YOLO
+- Intel Sample Videos: https://github.com/intel-iot-devkit/sample-videos
+- Ultralytics Dataset Docs: https://docs.ultralytics.com/datasets/detect/
