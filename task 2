@@ -1,137 +1,144 @@
-# 04WT2 – Label Studio Setup & YOLO Dataset Creation
-**Project:** Deep Learning-Based Visual Analytics of Molecular Dynamics Trajectories  
+# 04WT2 – Label Studio Setup & Protein Dataset Creation
+**Project:** Deep Learning-Based Visual Analytics of Molecular Dynamics Trajectories
+**Detection Classes:** alpha_helix, beta_sheet
 **Week:** 4 | **Task:** 2
 
 ---
 
 ## Objective
 
-Install Label Studio in a dedicated virtual environment, select a molecular dynamics visualization video, extract frames, annotate objects for detection, and generate YOLO-compatible label files, YAML config, and train/val split text files.
+Install Label Studio in a dedicated virtual environment, load VMD-rendered protein
+trajectory frames, annotate alpha-helices and beta-sheets with bounding boxes,
+and export a complete YOLO-format dataset.
 
 ---
 
-## Task: Object Detection on MD Trajectory Renders
-
-**Detection classes chosen (2 classes):**
-1. `helix` — Alpha-helix secondary structure visible in protein MD renders
-2. `cluster` — Dense molecular aggregate or nano-cluster in material simulations
-
-**Rationale:** These two structural motifs appear frequently in MD trajectory renders from tools like VMD and OVITO, making them suitable targets for bounding-box detection.
-
----
-
-## Step 1: Install Label Studio in a Separate Virtual Environment
+## Step 1: Install Label Studio (Separate Virtual Environment)
 
 ```bash
-# Create a dedicated environment (NOT inside ultralytics)
+# Create a dedicated environment — NOT inside ultralytics
 python -m venv ~/envs/labelstudio_env
-source ~/envs/labelstudio_env/bin/activate
+source ~/envs/labelstudio_env/bin/activate   # Linux/Mac
+# or: ~/envs/labelstudio_env/Scripts/activate  (Windows)
 
-# Install label-studio
 pip install label-studio
 
-# Launch label-studio
+# Launch
 label-studio start
-# Access at: http://localhost:8080
+# Opens at: http://localhost:8080
 ```
 
-> ⚠️ **Do NOT install inside the Ultralytics environment** — dependency conflicts may arise.
+> ⚠️ **Critical:** Do NOT install Label Studio inside the Ultralytics environment.
+> They have conflicting dependencies. Always use a separate virtual environment.
 
 ---
 
-## Step 2: Video Selection & Frame Extraction
+## Step 2: Render Protein Video in VMD & Extract Frames
 
-**Video source:** Rendered MD trajectory of a protein folding simulation (OVITO export, 60 seconds, 640×480).
+### Render in VMD (NewCartoon + Structure coloring)
 
-Alternatively, sourced from: https://github.com/intel-iot-devkit/sample-videos
+```tcl
+# VMD Tk Console
+mol new 1VII.pdb                  ;# Villin headpiece — clear alpha-helices
+mol addfile trajectory.dcd
+mol modstyle 0 0 NewCartoon
+mol modcolor 0 0 Structure        ;# helix=RED, sheet=YELLOW, coil=WHITE
+color Display Background black
+
+# Export all frames
+set n [molinfo 0 get numframes]
+for {set i 0} {$i < $n} {incr i} {
+    molinfo 0 set frame $i
+    render TachyonInternal frame_[format "%04d" $i].png
+}
+```
+
+### Extract frames from rendered video (alternative)
 
 ```bash
-# Extract at 10 fps → 600 frames total
-ffmpeg -i md_protein_trajectory.mp4 -vf fps=10 all_frames/frame_%04d.png
-
-# Verify
-ls all_frames/ | wc -l   # Should output: 600
+# If VMD exported a video file
+ffmpeg -i protein_trajectory.mp4 -vf fps=10 all_frames/frame_%04d.png
+echo "Total frames: $(ls all_frames/ | wc -l)"
+# Expected: ~600 from a 60-second render
 ```
 
 ---
 
-## Step 3: Organize Frames into Train / Val / Test
+## Step 3: Select & Organize Frames
 
 ```bash
 mkdir -p dataset/{train,val,test}/images
 
-# Train: 100 frames — pick every 6th frame (temporal diversity)
-count=0
-for i in $(seq 1 6 600); do
-  cp all_frames/frame_$(printf "%04d" $i).png dataset/train/images/
-  ((count++))
-  [ $count -eq 100 ] && break
-done
+# Train: 100 frames — spaced every ~6 frames for temporal diversity
+python3 << 'EOF'
+import os, shutil, glob
 
-# Val: 40 frames — pick from remaining frames, spaced apart
-count=0
-for i in $(seq 4 15 600); do
-  cp all_frames/frame_$(printf "%04d" $i).png dataset/val/images/
-  ((count++))
-  [ $count -eq 40 ] && break
-done
+frames = sorted(glob.glob("all_frames/frame_*.png"))
+train_frames = frames[::6][:100]
+val_frames   = [f for f in frames[::6] if f not in train_frames][::3][:40]
 
-# Test: all other remaining frames
-# (copy everything not already in train/val)
+for f in train_frames:
+    shutil.copy(f, f"dataset/train/images/{os.path.basename(f)}")
+for f in val_frames:
+    shutil.copy(f, f"dataset/val/images/{os.path.basename(f)}")
+
+print(f"Train: {len(train_frames)} | Val: {len(val_frames)}")
+EOF
 ```
 
 ---
 
-## Step 4: Annotate with Label Studio
+## Step 4: Configure Label Studio Project
 
-1. Open http://localhost:8080 in Chrome
-2. Create new project: **"MD Trajectory Object Detection"**
+1. Open http://localhost:8080 → **Create Project**
+2. Project name: `Protein Secondary Structure Detection`
 3. Upload images from `dataset/train/images/` and `dataset/val/images/`
-4. Configure labeling interface with 2 classes:
+4. Go to **Settings → Labeling Interface → Code** and paste:
 
 ```xml
-<!-- Label Studio config XML -->
 <View>
-  <Image name="image" value="$image"/>
+  <Image name="image" value="$image" zoom="true" zoomControl="true"/>
   <RectangleLabels name="label" toName="image">
-    <Label value="helix" background="#FF6B6B"/>
-    <Label value="cluster" background="#4ECDC4"/>
+    <Label value="alpha_helix"
+           background="#FF4444"
+           selectedColor="#FF0000"/>
+    <Label value="beta_sheet"
+           background="#FFD700"
+           selectedColor="#FFA500"/>
   </RectangleLabels>
 </View>
 ```
 
-5. Draw bounding boxes around each visible helix and cluster in every frame
-6. Export annotations in **YOLO format** from Label Studio
+---
+
+## Step 5: Annotation Guidelines
+
+Drawing accurate boxes around protein secondary structures:
+
+| Structure | Visual Cue in VMD Ribbon | Annotation Rule |
+|-----------|--------------------------|----------------|
+| `alpha_helix` | Red/pink cylindrical ribbon coil | Box tightly around the full helical tube extent |
+| `beta_sheet` | Yellow flat arrow-shaped strands | Box around the entire flat sheet region (may include multiple strands) |
+
+**Quality rules:**
+- Box must enclose the **entire** structure, not just part of it
+- If a helix is partially hidden behind other atoms, annotate the **visible** portion only
+- Minimum box size: 15×15 pixels — ignore smaller fragments
+- A single frame may contain **multiple** helices and sheets — annotate ALL of them
 
 ---
 
-## Step 5: Exported Label Files
+## Step 6: Export Annotations in YOLO Format
 
-Label Studio exports one `.txt` file per image:
-
-```
-# dataset/train/labels/frame_0001.txt
-0 0.512 0.334 0.148 0.092
-1 0.278 0.671 0.203 0.175
-```
-
-Move label files to correct directories:
-```bash
-mkdir -p dataset/{train,val}/labels
-mv exported_labels/train/*.txt dataset/train/labels/
-mv exported_labels/val/*.txt dataset/val/labels/
-```
-
----
-
-## Step 6: Create `train.txt` and `val.txt`
+In Label Studio:
+1. Go to project → **Export**
+2. Choose format: **YOLO with images**
+3. Download and unzip
 
 ```bash
-# Generate train.txt
-find $(pwd)/dataset/train/images -name "*.png" > dataset/train.txt
-
-# Generate val.txt
-find $(pwd)/dataset/val/images -name "*.png" > dataset/val.txt
+# Move exported labels to dataset structure
+mv exported/labels/train/*.txt dataset/train/labels/
+mv exported/labels/val/*.txt   dataset/val/labels/
 ```
 
 ---
@@ -140,62 +147,93 @@ find $(pwd)/dataset/val/images -name "*.png" > dataset/val.txt
 
 ```yaml
 # dataset.yaml
-path: /home/user/md_trajectory_dataset
+path: /home/user/protein_md_dataset
 train: train/images
-val: val/images
-test: test/images
+val:   val/images
+test:  test/images
 
 nc: 2
 names:
-  0: helix
-  1: cluster
+  0: alpha_helix
+  1: beta_sheet
 ```
 
 ---
 
-## Final Dataset Structure
+## Step 8: Generate `train.txt` and `val.txt`
 
+```bash
+find $(pwd)/dataset/train/images -name "*.png" | sort > dataset/train.txt
+find $(pwd)/dataset/val/images   -name "*.png" | sort > dataset/val.txt
+
+echo "train.txt lines: $(wc -l < dataset/train.txt)"
+echo "val.txt lines:   $(wc -l < dataset/val.txt)"
 ```
-md_trajectory_dataset/
-├── dataset.yaml
-├── train.txt
-├── val.txt
-├── train/
-│   ├── images/   (100 PNG frames)
-│   └── labels/   (100 YOLO .txt files)
-├── val/
-│   ├── images/   (40 PNG frames)
-│   └── labels/   (40 YOLO .txt files)
-└── test/
-    └── images/   (460 PNG frames)
+
+---
+
+## Step 9: Verify Dataset Integrity
+
+```python
+import os, glob
+
+def check_dataset(img_dir, lbl_dir):
+    imgs = sorted(glob.glob(f"{img_dir}/*.png"))
+    missing, errors = [], []
+    for img in imgs:
+        name = os.path.splitext(os.path.basename(img))[0]
+        lbl  = f"{lbl_dir}/{name}.txt"
+        if not os.path.exists(lbl):
+            missing.append(name)
+            continue
+        with open(lbl) as f:
+            for i, line in enumerate(f):
+                parts = line.strip().split()
+                if len(parts) != 5:
+                    errors.append(f"{lbl}:{i} — expected 5 columns")
+                elif int(parts[0]) not in [0, 1]:
+                    errors.append(f"{lbl}:{i} — invalid class {parts[0]}")
+    print(f"Images: {len(imgs)} | Missing labels: {len(missing)} | Errors: {len(errors)}")
+
+check_dataset("dataset/train/images", "dataset/train/labels")
+check_dataset("dataset/val/images",   "dataset/val/labels")
 ```
+
+---
+
+## Final Dataset Statistics
+
+| Split | Images | alpha_helix boxes | beta_sheet boxes | Total annotations |
+|-------|--------|-------------------|------------------|-------------------|
+| Train | 100 | ~220 | ~160 | ~380 |
+| Val | 40 | ~88 | ~64 | ~152 |
+
+*(Counts vary based on protein and trajectory — a multi-helix protein like
+Villin HP36 will have 3 helices visible per frame → ~300 helix boxes in train)*
 
 ---
 
 ## GitHub Upload
 
-All meta files committed to repository:
-
 ```bash
-git init md-trajectory-yolo-dataset
-cd md-trajectory-yolo-dataset
-cp /path/to/dataset.yaml .
-cp /path/to/train.txt .
-cp /path/to/val.txt .
-cp -r /path/to/dataset/train/labels ./train_labels/
-cp -r /path/to/dataset/val/labels ./val_labels/
+git init protein-md-yolo-dataset
+cd protein-md-yolo-dataset
+cp path/to/dataset.yaml .
+cp path/to/train.txt .
+cp path/to/val.txt .
+cp -r path/to/dataset/train/labels ./train_labels/
+cp -r path/to/dataset/val/labels   ./val_labels/
 git add .
-git commit -m "Add YOLO dataset meta files for MD trajectory detection"
+git commit -m "Add YOLO dataset meta files — protein secondary structure detection"
 git push origin main
 ```
-
-**GitHub Repository Link:** `https://github.com/<username>/md-trajectory-yolo-dataset`
 
 ---
 
 ## References
 
-- Label Studio Install Guide: https://labelstud.io/guide/install.html#Install-using-pip
+- Label Studio Install: https://labelstud.io/guide/install.html#Install-using-pip
 - Label Studio YOLO Export: https://labelstud.io/guide/export.html#YOLO
-- Intel Sample Videos: https://github.com/intel-iot-devkit/sample-videos
-- Ultralytics Dataset Docs: https://docs.ultralytics.com/datasets/detect/
+- VMD NewCartoon Representation: https://www.ks.uiuc.edu/Research/vmd/current/ug/node55.html
+- RCSB PDB (protein structures): https://www.rcsb.org
+- Villin HP36 (1VII): https://www.rcsb.org/structure/1VII
